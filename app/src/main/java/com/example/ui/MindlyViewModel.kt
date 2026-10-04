@@ -236,26 +236,27 @@ class MindlyViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun quickAdminLogin() {
-        viewModelScope.launch {
-            val admin = repository.getUserByEmail("admin@mindly.org")
-            if (admin != null) {
-                setCurrentUser(admin)
+    fun verifyAndLoginAdminPin(pin: String): Boolean {
+        if (pin.trim() == "1314") {
+            viewModelScope.launch {
+                var admin = repository.getUserByEmail("admin@mindly.org")
+                if (admin == null) {
+                    val registered = repository.registerUser("Admin", "admin@mindly.org", "Admin@123", "en", "admin")
+                    admin = registered.getOrNull()
+                }
+                if (admin != null) {
+                    if (admin.role != "admin") {
+                        val updated = admin.copy(role = "admin")
+                        repository.updateUser(updated)
+                        admin = updated
+                    }
+                    setCurrentUser(admin)
+                    pushSubScreen(SubScreen.AdminDashboard)
+                }
             }
+            return true
         }
-    }
-
-    fun quickUserLogin(customName: String = "Pranav") {
-        viewModelScope.launch {
-            var user = repository.getUserByEmail("pranav@mindly.org")
-            if (user == null) {
-                val registered = repository.registerUser(customName, "pranav@mindly.org", "Pranav@123", "en", "user")
-                user = registered.getOrNull()
-            }
-            if (user != null) {
-                setCurrentUser(user)
-            }
-        }
+        return false
     }
 
     fun logout() {
@@ -332,6 +333,10 @@ class MindlyViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun pushSubScreen(sub: SubScreen) {
+        if (sub is SubScreen.AdminDashboard) {
+            val user = _currentUser.value
+            if (user?.role != "admin") return
+        }
         _subScreenStack.value = _subScreenStack.value + sub
     }
 
@@ -381,26 +386,34 @@ class MindlyViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    // Admin Helplines CRUD
+    // Admin Helplines CRUD with Role-Based Security
     fun addProfessionalContact(contact: ProfessionalContactEntity) {
+        val user = _currentUser.value
+        if (user?.role != "admin") return
         viewModelScope.launch {
             repository.addProfessionalContact(contact)
         }
     }
 
     fun updateProfessionalContact(contact: ProfessionalContactEntity) {
+        val user = _currentUser.value
+        if (user?.role != "admin") return
         viewModelScope.launch {
             repository.updateProfessionalContact(contact)
         }
     }
 
     fun deleteProfessionalContact(id: Long) {
+        val user = _currentUser.value
+        if (user?.role != "admin") return
         viewModelScope.launch {
             repository.deleteProfessionalContact(id)
         }
     }
 
     fun togglePublishStatus(id: Long, currentStatus: Boolean) {
+        val user = _currentUser.value
+        if (user?.role != "admin") return
         viewModelScope.launch {
             repository.setPublishedStatus(id, !currentStatus)
         }

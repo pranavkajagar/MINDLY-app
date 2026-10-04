@@ -145,12 +145,16 @@ fun MindlyApp(viewModel: MindlyViewModel) {
                         )
                     }
                     is SubScreen.AdminDashboard -> {
-                        AdminDashboardScreen(
-                            viewModel = viewModel,
-                            stats = adminStats,
-                            language = language,
-                            onBack = { viewModel.navigateBack() }
-                        )
+                        if (currentUser?.role == "admin") {
+                            AdminDashboardScreen(
+                                viewModel = viewModel,
+                                stats = adminStats,
+                                language = language,
+                                onBack = { viewModel.navigateBack() }
+                            )
+                        } else {
+                            viewModel.navigateBack()
+                        }
                     }
                     SubScreen.None -> {
                         // Main Bottom Dock Tabs

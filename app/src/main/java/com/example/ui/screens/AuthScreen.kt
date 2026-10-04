@@ -90,6 +90,13 @@ fun AuthScreen(
     var forgotEmail by remember { mutableStateOf("") }
     var forgotSuccessMsg by remember { mutableStateOf(false) }
 
+    // Secret Admin Access via 7 taps on MINDLY logo
+    var pinInput by remember { mutableStateOf("") }
+    var pinError by remember { mutableStateOf<String?>(null) }
+    var showPinDialog by remember { mutableStateOf(false) }
+    var secretTapCount by remember { mutableStateOf(0) }
+    var lastTapTime by remember { mutableStateOf(0L) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -107,8 +114,31 @@ fun AuthScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // Header Logo
-            MindlyLogo(size = 42.dp)
+            // Header Logo with secret 7-tap trigger
+            MindlyLogo(
+                size = 42.dp,
+                modifier = Modifier
+                    .testTag("mindly_logo_header")
+                    .clickable(
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        val now = System.currentTimeMillis()
+                        if (now - lastTapTime > 2500L) {
+                            secretTapCount = 1
+                        } else {
+                            secretTapCount += 1
+                        }
+                        lastTapTime = now
+
+                        if (secretTapCount == 7) {
+                            secretTapCount = 0
+                            pinInput = ""
+                            pinError = null
+                            showPinDialog = true
+                        }
+                    }
+            )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = MindlyStrings.get("tagline", selectedLanguage),
@@ -406,39 +436,91 @@ fun AuthScreen(
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Quick Demo shortcuts for evaluation ease
-            Column(
-                modifier = Modifier.widthIn(max = 440.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                OutlinedButton(
-                    onClick = { viewModel.quickUserLogin() },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("quick_user_login"),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = glassColors.textSecondary)
-                ) {
-                    Text(MindlyStrings.get("quick_user_login", selectedLanguage), fontSize = 12.sp)
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedButton(
-                    onClick = { viewModel.quickAdminLogin() },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("quick_admin_login"),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = glassColors.accentGlow)
-                ) {
-                    Text(MindlyStrings.get("quick_admin_login", selectedLanguage), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                }
-            }
         }
+    }
+
+    // Secret Admin Access PIN Dialog
+    if (showPinDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showPinDialog = false
+                pinInput = ""
+                pinError = null
+            },
+            title = {
+                Text(
+                    text = "Enter the PIN",
+                    fontWeight = FontWeight.Bold,
+                    color = glassColors.textPrimary
+                )
+            },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = pinInput,
+                        onValueChange = {
+                            if (it.length <= 8) {
+                                pinInput = it
+                                pinError = null
+                            }
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        visualTransformation = PasswordVisualTransformation(),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("secret_pin_input"),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = glassColors.accentGlow,
+                            unfocusedBorderColor = glassColors.glassCardBorder
+                        )
+                    )
+
+                    if (pinError != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = pinError!!,
+                            color = EmergencyRed,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.testTag("secret_pin_error")
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val success = viewModel.verifyAndLoginAdminPin(pinInput)
+                        if (success) {
+                            showPinDialog = false
+                            pinInput = ""
+                            pinError = null
+                        } else {
+                            pinError = "Incorrect PIN"
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = glassColors.accentGlow),
+                    modifier = Modifier.testTag("secret_pin_submit")
+                ) {
+                    Text("OK", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showPinDialog = false
+                        pinInput = ""
+                        pinError = null
+                    }
+                ) {
+                    Text(MindlyStrings.get("cancel", selectedLanguage), color = glassColors.textMuted)
+                }
+            },
+            containerColor = glassColors.surface,
+            shape = RoundedCornerShape(20.dp)
+        )
     }
 
     // Forgot Password Dialog

@@ -37,6 +37,14 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -119,28 +127,6 @@ fun ContactsScreen(
                         color = glassColors.textMuted
                     )
                 }
-
-                Button(
-                    onClick = {
-                        editingContact = null
-                        showAddEditDialog = true
-                    },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = glassColors.accentGlow),
-                    modifier = Modifier.testTag("add_contact_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = MindlyStrings.get("add_contact", language),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp
-                    )
-                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -219,6 +205,64 @@ fun ContactsScreen(
                     }
                 }
             }
+        }
+
+        // Small Floating + Button (Square 48dp x 48dp, rounded corners, above bottom navigation dock)
+        val interactionSource = remember { MutableInteractionSource() }
+        val isPressed by interactionSource.collectIsPressedAsState()
+        val scale by animateFloatAsState(
+            targetValue = if (isPressed) 0.90f else 1.0f,
+            animationSpec = tween(120),
+            label = "floating_add_scale"
+        )
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                .padding(end = 20.dp, bottom = 84.dp)
+                .graphicsLayer(scaleX = scale, scaleY = scale)
+                .size(48.dp)
+                .shadow(
+                    elevation = 8.dp,
+                    shape = RoundedCornerShape(14.dp),
+                    ambientColor = if (glassColors.isDark) glassColors.accentGlow.copy(alpha = 0.4f) else Color(0x20000000),
+                    spotColor = if (glassColors.isDark) glassColors.accentGlow.copy(alpha = 0.6f) else Color(0x35000000)
+                )
+                .clip(RoundedCornerShape(14.dp))
+                .background(
+                    if (glassColors.isDark) {
+                        Brush.linearGradient(
+                            colors = listOf(glassColors.surface, Color(0xFF1B0E2B))
+                        )
+                    } else {
+                        Brush.linearGradient(
+                            colors = listOf(Color.White, Color(0xFFEFF6FF))
+                        )
+                    }
+                )
+                .border(
+                    width = 1.5.dp,
+                    color = glassColors.accentGlow.copy(alpha = if (isPressed) 0.95f else 0.65f),
+                    shape = RoundedCornerShape(14.dp)
+                )
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = {
+                        editingContact = null
+                        showAddEditDialog = true
+                    }
+                )
+                .testTag("floating_add_contact_button"),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = MindlyStrings.get("add_contact", language),
+                tint = glassColors.accentGlow,
+                modifier = Modifier.size(26.dp)
+            )
         }
     }
 
