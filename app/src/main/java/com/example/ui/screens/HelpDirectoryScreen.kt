@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -69,6 +70,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.ProblemCategory
@@ -128,46 +130,71 @@ fun HelpDirectoryScreen(
             .padding(horizontal = 20.dp)
             .padding(top = 16.dp)
     ) {
-        // Top Title
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                Text(
-                    text = MindlyStrings.get("qa_help_title", language),
-                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                    color = glassColors.textPrimary
-                )
-                Text(
-                    text = "Official Government & Verified Helplines Directory",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = glassColors.textMuted
-                )
-            }
+        // Top Title & Controlled Verification Shield Logo
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val isTabletOrDesktop = this.maxWidth >= 600.dp
+            val isSmallMobile = this.maxWidth < 360.dp
+            val titleSize = if (isTabletOrDesktop) 26.sp else 22.sp
+            val subtitleSize = if (isTabletOrDesktop) 14.sp else 12.sp
+            val badgeHeight = if (isTabletOrDesktop) 38.dp else 32.dp
+            val badgeIconSize = if (isTabletOrDesktop) 18.dp else 15.dp
+            val badgeFontSize = if (isTabletOrDesktop) 12.sp else 11.sp
 
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(SuccessGreen.copy(alpha = 0.15f))
-                    .border(1.dp, SuccessGreen.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
-                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.VerifiedUser,
-                        contentDescription = null,
-                        tint = SuccessGreen,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
+                Column(modifier = Modifier.weight(1f, fill = false)) {
                     Text(
-                        text = "Verified Only",
-                        fontSize = 11.sp,
+                        text = MindlyStrings.get("qa_help_title", language),
+                        fontSize = titleSize,
                         fontWeight = FontWeight.Bold,
-                        color = SuccessGreen
+                        color = glassColors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Official Government & Verified Helplines Directory",
+                        fontSize = subtitleSize,
+                        color = glassColors.textMuted,
+                        maxLines = if (isSmallMobile) 2 else 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                // Controlled verification/shield badge (strictly 32px on mobile, 38px on desktop)
+                Box(
+                    modifier = Modifier
+                        .height(badgeHeight)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(SuccessGreen.copy(alpha = 0.15f))
+                        .border(1.dp, SuccessGreen.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                        .padding(horizontal = if (isTabletOrDesktop) 10.dp else 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.VerifiedUser,
+                            contentDescription = "Verified Directory",
+                            tint = SuccessGreen,
+                            modifier = Modifier.size(badgeIconSize)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Verified Only",
+                            fontSize = badgeFontSize,
+                            fontWeight = FontWeight.Bold,
+                            color = SuccessGreen,
+                            maxLines = 1
+                        )
+                    }
                 }
             }
         }

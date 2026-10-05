@@ -30,12 +30,18 @@ interface UserDao {
 
     @Query("SELECT COUNT(*) FROM users")
     fun getUserCount(): Flow<Int>
+
+    @Query("SELECT * FROM users ORDER BY id DESC")
+    suspend fun getAllUsersDirect(): List<UserEntity>
 }
 
 @Dao
 interface PersonalContactDao {
     @Query("SELECT * FROM personal_contacts WHERE userId = :userId ORDER BY createdAt DESC")
     fun getContactsForUser(userId: Long): Flow<List<PersonalContactEntity>>
+
+    @Query("SELECT * FROM personal_contacts WHERE userId = :userId ORDER BY createdAt DESC")
+    suspend fun getContactsForUserDirect(userId: Long): List<PersonalContactEntity>
 
     @Query("SELECT * FROM personal_contacts WHERE id = :id LIMIT 1")
     suspend fun getContactById(id: Long): PersonalContactEntity?
@@ -61,8 +67,14 @@ interface ProfessionalContactDao {
     @Query("SELECT * FROM professional_contacts WHERE isPublished = 1 ORDER BY isEmergency DESC, name ASC")
     fun getAllPublishedContacts(): Flow<List<ProfessionalContactEntity>>
 
+    @Query("SELECT * FROM professional_contacts WHERE isPublished = 1 ORDER BY isEmergency DESC, name ASC")
+    suspend fun getAllPublishedContactsDirect(): List<ProfessionalContactEntity>
+
     @Query("SELECT * FROM professional_contacts ORDER BY id DESC")
     fun getAllContactsForAdmin(): Flow<List<ProfessionalContactEntity>>
+
+    @Query("SELECT * FROM professional_contacts ORDER BY id DESC")
+    suspend fun getAllContactsForAdminDirect(): List<ProfessionalContactEntity>
 
     @Query("""
         SELECT * FROM professional_contacts 
@@ -105,6 +117,9 @@ interface ProfessionalContactDao {
 interface MoodCheckinDao {
     @Query("SELECT * FROM mood_checkins WHERE userId = :userId ORDER BY timestamp DESC")
     fun getCheckinsForUser(userId: Long): Flow<List<MoodCheckinEntity>>
+
+    @Query("SELECT * FROM mood_checkins WHERE userId = :userId ORDER BY timestamp DESC")
+    suspend fun getCheckinsForUserDirect(userId: Long): List<MoodCheckinEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCheckin(checkin: MoodCheckinEntity): Long

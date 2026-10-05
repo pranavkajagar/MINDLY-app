@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'admin' ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+      );
+    }
+
+    // 1. Users collection
+    match /users/{userId} {
+      // Any authenticated user can read their own profile; admins can list and read all profiles
+      allow read: if isOwner(userId) || isAdmin();
+
+      // Users can create their own profile upon registration; admins can create admin accounts
+      allow create: if isOwner(userId) || isAdmin();
+
+      // Users can update their own preferences (name, language, isDarkMode); admins can update roles
+      allow update: if isOwner(userId) || isAdmin();
+
+      // Only admins can delete user profiles
+      allow delete: if isAdmin();
+
+      // 2. Private Personal Emergency Contacts subcollection
+      match /personalEmergencyContacts/{contactId} {
+        // Strictly private to the user who owns this UID
+        allow read, write, delete: if isOwner(userId);
+      }
+
+      // 3. Private Mood Check-ins subcollection
+      match /moodCheckins/{checkinId} {
+        // Strictly private to the user who owns this UID
+        allow read, write, delete: if isOwner(userId);
+      }
+    }
+
+    // 4. Global Professional Contacts / Helplines
+    match /professionalContacts/{contactId} {
+      // Anyone (or any authenticated user) can read published helplines
+      allow read: if resource.data.published == true || isAdmin();
+
+      // Only admins can create, update, publish, unpublish, or delete professional contacts
+      allow create, update, delete: if isAdmin();
+    }
+
+    // 5. Global Awareness / Wellbeing Educational Content
+    match /awarenessContent/{contentId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

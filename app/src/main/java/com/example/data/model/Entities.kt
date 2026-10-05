@@ -6,9 +6,10 @@ import androidx.room.PrimaryKey
 @Entity(tableName = "users")
 data class UserEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val uid: String = "",
     val name: String,
     val email: String,
-    val passwordHash: String,
+    val passwordHash: String = "",
     val language: String = "en",
     val isDarkMode: Boolean = true,
     val role: String = "user", // "user" or "admin"
@@ -18,7 +19,9 @@ data class UserEntity(
 @Entity(tableName = "personal_contacts")
 data class PersonalContactEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val userId: Long,
+    val docId: String = "",
+    val userId: Long = 0,
+    val userUid: String = "",
     val name: String,
     val relationship: String,
     val phone: String,
@@ -31,6 +34,7 @@ data class PersonalContactEntity(
 @Entity(tableName = "professional_contacts")
 data class ProfessionalContactEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val docId: String = "",
     val name: String,
     val professionalType: String, // Helpline, Psychiatrist, Psychologist, Counsellor, Hospital, Emergency, Support Organization
     val organization: String,
@@ -132,7 +136,9 @@ enum class MoodType(val key: String, val emoji: String, val level: Int) {
 @Entity(tableName = "mood_checkins")
 data class MoodCheckinEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val userId: Long,
+    val docId: String = "",
+    val userId: Long = 0,
+    val userUid: String = "",
     val moodLevel: Int,
     val note: String = "",
     val timestamp: Long = System.currentTimeMillis()

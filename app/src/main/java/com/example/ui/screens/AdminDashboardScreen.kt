@@ -22,22 +22,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Mood
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.SupportAgent
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -45,7 +43,6 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -67,6 +64,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.ProfessionalContactEntity
+import com.example.data.model.UserEntity
 import com.example.i18n.AppLanguage
 import com.example.i18n.MindlyStrings
 import com.example.ui.AdminStats
@@ -76,6 +74,9 @@ import com.example.ui.components.MindlyTopBar
 import com.example.ui.theme.EmergencyRed
 import com.example.ui.theme.LocalMindlyColors
 import com.example.ui.theme.SuccessGreen
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun AdminDashboardScreen(
@@ -86,6 +87,9 @@ fun AdminDashboardScreen(
 ) {
     val glassColors = LocalMindlyColors.current
     val adminHelplines by viewModel.adminHelplines.collectAsState()
+    val adminUsers by viewModel.adminUsers.collectAsState()
+
+    var activeTab by remember { mutableStateOf(0) } // 0: Helplines, 1: Real-time Users
 
     var showAddEditDialog by remember { mutableStateOf(false) }
     var editingContact by remember { mutableStateOf<ProfessionalContactEntity?>(null) }
@@ -101,18 +105,20 @@ fun AdminDashboardScreen(
             language = language,
             onBack = onBack,
             actions = {
-                Button(
-                    onClick = {
-                        editingContact = null
-                        showAddEditDialog = true
-                    },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = glassColors.accentGlow),
-                    modifier = Modifier.testTag("admin_add_contact_button")
-                ) {
-                    Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Add Helpline", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                if (activeTab == 0) {
+                    Button(
+                        onClick = {
+                            editingContact = null
+                            showAddEditDialog = true
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = glassColors.accentGlow),
+                        modifier = Modifier.testTag("admin_add_contact_button")
+                    ) {
+                        Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Add Helpline", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             },
             testTag = "admin_dashboard_top_bar"
@@ -125,13 +131,43 @@ fun AdminDashboardScreen(
                 .testTag("admin_contacts_list"),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Overview Stats Grid
+            // Overview Stats Grid - Driven by Real-Time Firestore Listeners
             item {
-                Text(
-                    text = MindlyStrings.get("admin_overview", language),
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = glassColors.textPrimary
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = MindlyStrings.get("admin_overview", language),
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = glassColors.textPrimary
+                    )
+
+                    // Real-time Central Firestore sync badge
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(SuccessGreen.copy(alpha = 0.15f))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(SuccessGreen)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Central Firestore Live",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = SuccessGreen
+                        )
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(10.dp))
 
                 Row(
@@ -174,25 +210,113 @@ fun AdminDashboardScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                Text(
-                    text = MindlyStrings.get("admin_contacts_list", language),
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = glassColors.textPrimary
-                )
+                // Section Tabs: Helplines vs Registered Users
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(glassColors.surface)
+                        .border(1.dp, glassColors.glassCardBorder, RoundedCornerShape(12.dp))
+                        .padding(4.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (activeTab == 0) glassColors.accentGlow else Color.Transparent)
+                            .clickable { activeTab = 0 }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Helplines (${adminHelplines.size})",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (activeTab == 0) Color.White else glassColors.textSecondary
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (activeTab == 1) glassColors.accentGlow else Color.Transparent)
+                            .clickable { activeTab = 1 }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Real-Time Users (${adminUsers.size})",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (activeTab == 1) Color.White else glassColors.textSecondary
+                        )
+                    }
+                }
             }
 
-            // Helplines list
-            items(adminHelplines) { contact ->
-                AdminHelplineCard(
-                    contact = contact,
-                    language = language,
-                    onTogglePublish = { viewModel.togglePublishStatus(contact.id, contact.isPublished) },
-                    onEdit = {
-                        editingContact = contact
-                        showAddEditDialog = true
-                    },
-                    onDelete = { deletingContact = contact }
-                )
+            if (activeTab == 0) {
+                // Helplines list
+                if (adminHelplines.isEmpty()) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "No helplines in directory.",
+                                color = glassColors.textMuted,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                } else {
+                    items(adminHelplines) { contact ->
+                        AdminHelplineCard(
+                            contact = contact,
+                            language = language,
+                            onTogglePublish = { viewModel.togglePublishStatus(contact.id, contact.isPublished, contact.docId) },
+                            onEdit = {
+                                editingContact = contact
+                                showAddEditDialog = true
+                            },
+                            onDelete = { deletingContact = contact }
+                        )
+                    }
+                }
+            } else {
+                // Real-time Users list from Central Firestore
+                if (adminUsers.isEmpty()) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Default.Sync,
+                                    contentDescription = null,
+                                    tint = glassColors.accentGlow,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Listening for user registrations on Firestore...",
+                                    color = glassColors.textMuted,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    items(adminUsers) { user ->
+                        AdminUserCard(user = user)
+                    }
+                }
             }
 
             item {
@@ -238,7 +362,7 @@ fun AdminDashboardScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        deletingContact?.let { viewModel.deleteProfessionalContact(it.id) }
+                        deletingContact?.let { viewModel.deleteProfessionalContact(it.id, it.docId) }
                         deletingContact = null
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = EmergencyRed)
@@ -311,6 +435,99 @@ private fun StatCard(
 }
 
 @Composable
+private fun AdminUserCard(user: UserEntity) {
+    val glassColors = LocalMindlyColors.current
+    val dateFormat = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()) }
+    val dateStr = remember(user.createdAt) { dateFormat.format(Date(user.createdAt)) }
+
+    GlassCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(if (user.role == "admin") glassColors.accentGlow.copy(alpha = 0.2f) else glassColors.accentContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Person,
+                        contentDescription = null,
+                        tint = if (user.role == "admin") glassColors.accentGlow else glassColors.textPrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = user.name,
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = glassColors.textPrimary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (user.role == "admin") glassColors.accentGlow else glassColors.surface)
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = user.role.uppercase(),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (user.role == "admin") Color.White else glassColors.textSecondary
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    Text(
+                        text = user.email,
+                        fontSize = 11.sp,
+                        color = glassColors.textMuted
+                    )
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    Text(
+                        text = "Joined: $dateStr • Lang: ${user.language.uppercase()}",
+                        fontSize = 10.sp,
+                        color = glassColors.textSecondary
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(SuccessGreen.copy(alpha = 0.15f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "Live",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = SuccessGreen
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun AdminHelplineCard(
     contact: ProfessionalContactEntity,
     language: AppLanguage,
@@ -348,78 +565,86 @@ private fun AdminHelplineCard(
                     // Status Badge
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (contact.isPublished) SuccessGreen.copy(alpha = 0.2f) else glassColors.surface)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(
+                                if (contact.isPublished) SuccessGreen.copy(alpha = 0.15f)
+                                else glassColors.surface
+                            )
                             .border(
                                 1.dp,
-                                if (contact.isPublished) SuccessGreen.copy(alpha = 0.4f) else glassColors.glassCardBorder,
-                                RoundedCornerShape(8.dp)
+                                if (contact.isPublished) SuccessGreen.copy(alpha = 0.4f)
+                                else glassColors.glassCardBorder,
+                                RoundedCornerShape(6.dp)
                             )
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
                     ) {
                         Text(
-                            text = if (contact.isPublished) "Published" else "Unpublished",
-                            fontSize = 10.sp,
+                            text = if (contact.isPublished) "Published" else "Draft",
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = if (contact.isPublished) SuccessGreen else glassColors.textMuted
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit",
+                            tint = glassColors.accentGlow,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete",
+                            tint = EmergencyRed.copy(alpha = 0.8f),
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "${contact.phone} • ${contact.availableHours}",
-                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                color = glassColors.accentGlow
+                text = contact.description,
+                style = MaterialTheme.typography.bodySmall,
+                color = glassColors.textSecondary,
+                maxLines = 2
             )
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // Admin Action Buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Publish/Unpublish toggle button
-                OutlinedButton(
-                    onClick = onTogglePublish,
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.height(36.dp)
-                ) {
-                    Icon(
-                        imageVector = if (contact.isPublished) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = if (contact.isPublished) glassColors.textMuted else SuccessGreen
+                Text(
+                    text = "Phone: ${contact.phone}",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = glassColors.textPrimary
+                )
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = if (contact.isPublished) "Public" else "Hidden",
+                        fontSize = 12.sp,
+                        color = glassColors.textMuted
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (contact.isPublished) "Unpublish" else "Publish",
-                        fontSize = 12.sp,
-                        color = glassColors.textPrimary
+                    Switch(
+                        checked = contact.isPublished,
+                        onCheckedChange = { onTogglePublish() },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = SuccessGreen
+                        )
                     )
-                }
-
-                Row {
-                    IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = "Edit",
-                            tint = glassColors.textSecondary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                    IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Delete",
-                            tint = EmergencyRed,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
                 }
             }
         }
@@ -442,9 +667,10 @@ private fun AddEditProfessionalDialog(
     var phone by remember { mutableStateOf(initialContact?.phone ?: "") }
     var email by remember { mutableStateOf(initialContact?.email ?: "") }
     var location by remember { mutableStateOf(initialContact?.location ?: "Pan India") }
-    var availableHours by remember { mutableStateOf(initialContact?.availableHours ?: "24/7 (Toll-Free)") }
+    var availableHours by remember { mutableStateOf(initialContact?.availableHours ?: "24/7 (Toll Free)") }
     var languages by remember { mutableStateOf(initialContact?.languages ?: "English, Hindi, Kannada") }
     var description by remember { mutableStateOf(initialContact?.description ?: "") }
+    var problemCategories by remember { mutableStateOf(initialContact?.problemCategories ?: "crisis, anxiety, depression") }
     var isEmergency by remember { mutableStateOf(initialContact?.isEmergency ?: true) }
     var isPublished by remember { mutableStateOf(initialContact?.isPublished ?: true) }
     var errorText by remember { mutableStateOf<String?>(null) }
@@ -458,13 +684,13 @@ private fun AddEditProfessionalDialog(
         "Psychiatrist",
         "Counsellor"
     )
-    var typeExpanded by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = if (initialContact == null) "Add Professional Helpline" else "Edit Helpline Details",
+                text = if (initialContact == null) "Add Professional Helpline" else "Edit Helpline",
                 fontWeight = FontWeight.Bold,
                 color = glassColors.textPrimary
             )
@@ -477,36 +703,38 @@ private fun AddEditProfessionalDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Helpline / Professional Name *") },
+                    label = { Text("Name / Service Name *") },
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth().testTag("admin_name_input")
+                    modifier = Modifier.fillMaxWidth().testTag("admin_input_name")
                 )
 
-                // Professional Type Dropdown
+                // Type Dropdown
                 ExposedDropdownMenuBox(
-                    expanded = typeExpanded,
-                    onExpandedChange = { typeExpanded = !typeExpanded }
+                    expanded = expanded,
+                    onExpandedChange = { expanded = !expanded }
                 ) {
                     OutlinedTextField(
                         value = professionalType,
                         onValueChange = {},
                         readOnly = true,
-                        label = { Text("Category Type") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = typeExpanded) },
-                        modifier = Modifier.fillMaxWidth().menuAnchor(),
+                        label = { Text("Service Type") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor(),
                         shape = RoundedCornerShape(12.dp)
                     )
                     ExposedDropdownMenu(
-                        expanded = typeExpanded,
-                        onDismissRequest = { typeExpanded = false }
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
                     ) {
-                        typeOptions.forEach { type ->
+                        typeOptions.forEach { opt ->
                             DropdownMenuItem(
-                                text = { Text(type) },
+                                text = { Text(opt) },
                                 onClick = {
-                                    professionalType = type
-                                    typeExpanded = false
+                                    professionalType = opt
+                                    expanded = false
                                 }
                             )
                         }
@@ -516,10 +744,10 @@ private fun AddEditProfessionalDialog(
                 OutlinedTextField(
                     value = organization,
                     onValueChange = { organization = it },
-                    label = { Text("Organization / Hospital *") },
+                    label = { Text("Organization / Institution *") },
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth().testTag("admin_org_input")
+                    modifier = Modifier.fillMaxWidth().testTag("admin_input_org")
                 )
 
                 OutlinedTextField(
@@ -528,13 +756,13 @@ private fun AddEditProfessionalDialog(
                     label = { Text("Phone Number / Helpline *") },
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth().testTag("admin_phone_input")
+                    modifier = Modifier.fillMaxWidth().testTag("admin_input_phone")
                 )
 
                 OutlinedTextField(
                     value = email,
                     onValueChange = { email = it },
-                    label = { Text("Contact Email (Optional)") },
+                    label = { Text("Email (optional)") },
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -543,7 +771,7 @@ private fun AddEditProfessionalDialog(
                 OutlinedTextField(
                     value = location,
                     onValueChange = { location = it },
-                    label = { Text("Location (e.g. Pan India, Bengaluru)") },
+                    label = { Text("Location / Coverage") },
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -552,7 +780,7 @@ private fun AddEditProfessionalDialog(
                 OutlinedTextField(
                     value = availableHours,
                     onValueChange = { availableHours = it },
-                    label = { Text("Available Hours (e.g. 24/7)") },
+                    label = { Text("Operating Hours") },
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -561,7 +789,16 @@ private fun AddEditProfessionalDialog(
                 OutlinedTextField(
                     value = languages,
                     onValueChange = { languages = it },
-                    label = { Text("Supported Languages") },
+                    label = { Text("Languages Supported") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = problemCategories,
+                    onValueChange = { problemCategories = it },
+                    label = { Text("Problem Tags (comma separated)") },
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -570,42 +807,28 @@ private fun AddEditProfessionalDialog(
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },
-                    label = { Text("Service Description") },
-                    singleLine = false,
+                    label = { Text("Description & Services Offered") },
                     maxLines = 3,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // Checkboxes for Emergency & Published
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { isEmergency = !isEmergency },
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(
                         checked = isEmergency,
-                        onCheckedChange = { isEmergency = it },
-                        colors = CheckboxDefaults.colors(checkedColor = EmergencyRed)
+                        onCheckedChange = { isEmergency = it }
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Mark as 24/7 Emergency Crisis Service", fontSize = 12.sp)
+                    Text("Emergency / Crisis 24/7 service", fontSize = 13.sp)
                 }
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { isPublished = !isPublished },
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(
                         checked = isPublished,
-                        onCheckedChange = { isPublished = it },
-                        colors = CheckboxDefaults.colors(checkedColor = glassColors.accentGlow)
+                        onCheckedChange = { isPublished = it }
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Publish to Public Directory Immediately", fontSize = 12.sp)
+                    Text("Publish to Public Directory immediately", fontSize = 13.sp)
                 }
 
                 if (errorText != null) {
@@ -617,10 +840,14 @@ private fun AddEditProfessionalDialog(
             Button(
                 onClick = {
                     if (name.isBlank() || phone.isBlank() || organization.isBlank()) {
-                        errorText = "Name, organization, and phone number are required."
+                        errorText = "Please fill in all required fields (Name, Organization, Phone)."
                     } else {
-                        val entity = ProfessionalContactEntity(
-                            id = initialContact?.id ?: 0,
+                        val contact = (initialContact ?: ProfessionalContactEntity(
+                            name = name.trim(),
+                            professionalType = professionalType,
+                            organization = organization.trim(),
+                            phone = phone.trim()
+                        )).copy(
                             name = name.trim(),
                             professionalType = professionalType,
                             organization = organization.trim(),
@@ -630,18 +857,18 @@ private fun AddEditProfessionalDialog(
                             availableHours = availableHours.trim(),
                             languages = languages.trim(),
                             description = description.trim(),
+                            problemCategories = problemCategories.trim(),
                             isEmergency = isEmergency,
                             isPublished = isPublished,
-                            createdAt = initialContact?.createdAt ?: System.currentTimeMillis(),
                             updatedAt = System.currentTimeMillis()
                         )
-                        onSave(entity)
+                        onSave(contact)
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = glassColors.accentGlow),
                 modifier = Modifier.testTag("admin_save_contact_btn")
             ) {
-                Text("Save Helpline", fontWeight = FontWeight.Bold)
+                Text("Save to Central Directory", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {

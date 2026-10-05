@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.db.MindlyDatabase
+import com.example.data.firebase.FirebaseManager
 import com.example.data.model.AwarenessCategory
 import com.example.data.model.MoodCheckinEntity
 import com.example.data.model.PersonalContactEntity
@@ -77,10 +78,10 @@ class MindlyViewModel(application: Application) : AndroidViewModel(application) 
     val selectedProblemFilter = MutableStateFlow("All")
     val emergencyOnlyFilter = MutableStateFlow(false)
 
-    // Reactive Personal Contacts
+    // Reactive Personal Contacts (Private to user UID)
     val personalContacts: StateFlow<List<PersonalContactEntity>> = _currentUser.flatMapLatest { user ->
         if (user != null) {
-            repository.getPersonalContacts(user.id)
+            repository.getPersonalContacts(user.uid, user.id)
         } else {
             flowOf(emptyList())
         }
@@ -89,13 +90,13 @@ class MindlyViewModel(application: Application) : AndroidViewModel(application) 
     // Reactive Mood History
     val moodHistory: StateFlow<List<MoodCheckinEntity>> = _currentUser.flatMapLatest { user ->
         if (user != null) {
-            repository.getMoodCheckins(user.id)
+            repository.getMoodCheckins(user.uid, user.id)
         } else {
             flowOf(emptyList())
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Published Helplines Directory with Problem Filter
+    // Published Helplines Directory with Problem Filter (Global Firestore)
     private val allPublishedContacts = repository.getPublishedProfessionalContacts()
     val filteredHelplines: StateFlow<List<ProfessionalContactEntity>> = combine(
         allPublishedContacts,
@@ -121,35 +122,51 @@ class MindlyViewModel(application: Application) : AndroidViewModel(application) 
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.example.data.model.VerifiedGovernmentHelplines.list)
 
-    // Admin Helplines
+    // Admin Helplines (Global Firestore)
     val adminHelplines: StateFlow<List<ProfessionalContactEntity>> =
         repository.getAllContactsForAdmin()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Admin Stats
+    // Real-Time Admin Users List from Central Firestore
+    val adminUsers: StateFlow<List<UserEntity>> =
+        repository.observeAllUsersForAdmin()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Admin Stats dynamically calculated from Central Firestore real-time listeners!
     val adminStats: StateFlow<AdminStats> = combine(
-        repository.totalUsersCount,
-        repository.publishedHelplinesCount,
-        repository.personalContactsCount,
-        repository.moodLogsCount
+        adminUsers,
+        adminHelplines,
+        personalContacts,
+        moodHistory
     ) { users, helplines, personal, moods ->
         AdminStats(
-            totalUsers = users,
-            publishedHelplines = helplines,
-            totalPersonalContacts = personal,
-            totalMoodLogs = moods
+            totalUsers = users.size,
+            publishedHelplines = helplines.count { it.isPublished },
+            totalPersonalContacts = personal.size,
+            totalMoodLogs = moods.size
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AdminStats())
 
     init {
-        // Ensure verified Government helplines are in the Room database
+        // Initialize Firebase
+        FirebaseManager.init(application)
+
+        // Ensure verified Government helplines are in the central database
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             repository.ensureGovernmentHelplinesSeeded()
         }
 
-        // Restore session if user previously signed in with their real name
+        // Restore session if user previously signed in
         val savedUserId = sharedPrefs.getLong("current_user_id", -1L)
-        if (savedUserId != -1L) {
+        val savedUserUid = sharedPrefs.getString("current_user_uid", null)
+        if (savedUserUid != null) {
+            viewModelScope.launch {
+                val savedUser = repository.getUserByUid(savedUserUid)
+                if (savedUser != null) {
+                    setCurrentUser(savedUser)
+                }
+            }
+        } else if (savedUserId != -1L) {
             viewModelScope.launch {
                 val savedUser = repository.getUserById(savedUserId)
                 if (savedUser != null) {
@@ -164,7 +181,10 @@ class MindlyViewModel(application: Application) : AndroidViewModel(application) 
         _language.value = AppLanguage.fromCode(user.language)
         _isDarkMode.value = user.isDarkMode
         _authError.value = null
-        sharedPrefs.edit().putLong("current_user_id", user.id).apply()
+        sharedPrefs.edit()
+            .putLong("current_user_id", user.id)
+            .putString("current_user_uid", user.uid)
+            .apply()
     }
 
     // Problem filter for Help directory
@@ -176,18 +196,16 @@ class MindlyViewModel(application: Application) : AndroidViewModel(application) 
         selectedProblemFilter.value = "All"
     }
 
-    // Auth actions
+    // Auth actions (Firebase Authentication + Central Firestore)
     fun login(email: String, password: String, preferredLang: AppLanguage) {
         viewModelScope.launch {
             _isAuthLoading.value = true
             _authError.value = null
 
-            val user = repository.getUserByEmail(email.trim().lowercase())
-            if (user != null && user.passwordHash == password) {
-                val updated = user.copy(language = preferredLang.code)
-                repository.updateUser(updated)
-                setCurrentUser(updated)
-            } else {
+            val result = repository.loginUser(email, password, preferredLang.code)
+            result.onSuccess { user ->
+                setCurrentUser(user)
+            }.onFailure {
                 _authError.value = "error_auth_failed"
             }
             _isAuthLoading.value = false
@@ -226,6 +244,7 @@ class MindlyViewModel(application: Application) : AndroidViewModel(application) 
                 return@launch
             }
 
+            // Real-time user registration to Firebase Auth + central Firestore
             val result = repository.registerUser(name, email, password, language.code, "user")
             result.onSuccess { newUser ->
                 setCurrentUser(newUser)
@@ -260,7 +279,15 @@ class MindlyViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun logout() {
-        sharedPrefs.edit().remove("current_user_id").apply()
+        sharedPrefs.edit()
+            .remove("current_user_id")
+            .remove("current_user_uid")
+            .apply()
+        try {
+            FirebaseManager.auth.signOut()
+        } catch (e: Exception) {
+            // ignore
+        }
         _currentUser.value = null
         _subScreenStack.value = emptyList()
         _currentTab.value = NavigationScreen.HOME
@@ -278,12 +305,8 @@ class MindlyViewModel(application: Application) : AndroidViewModel(application) 
 
     fun changePassword(oldPw: String, newPw: String, onResult: (Boolean, String) -> Unit) {
         val user = _currentUser.value ?: return
-        if (user.passwordHash != oldPw) {
-            onResult(false, "Current password is incorrect.")
-            return
-        }
         if (newPw.length < 6) {
-            onResult(false, "New password must be at least 6 characters.")
+            onResult(false, "Password must be at least 6 characters.")
             return
         }
         viewModelScope.launch {
@@ -294,28 +317,23 @@ class MindlyViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    // Settings actions
     fun setLanguage(lang: AppLanguage) {
         _language.value = lang
-        val user = _currentUser.value
-        if (user != null) {
-            viewModelScope.launch {
-                val updated = user.copy(language = lang.code)
-                repository.updateUser(updated)
-                _currentUser.value = updated
-            }
+        val user = _currentUser.value ?: return
+        viewModelScope.launch {
+            val updated = user.copy(language = lang.code)
+            repository.updateUser(updated)
+            _currentUser.value = updated
         }
     }
 
-    fun setDarkMode(darkMode: Boolean) {
-        _isDarkMode.value = darkMode
-        val user = _currentUser.value
-        if (user != null) {
-            viewModelScope.launch {
-                val updated = user.copy(isDarkMode = darkMode)
-                repository.updateUser(updated)
-                _currentUser.value = updated
-            }
+    fun setDarkMode(isDark: Boolean) {
+        _isDarkMode.value = isDark
+        val user = _currentUser.value ?: return
+        viewModelScope.launch {
+            val updated = user.copy(isDarkMode = isDark)
+            repository.updateUser(updated)
+            _currentUser.value = updated
         }
     }
 
@@ -355,25 +373,28 @@ class MindlyViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             val contact = PersonalContactEntity(
                 userId = user.id,
+                userUid = user.uid,
                 name = name.trim(),
                 relationship = relationship,
                 phone = phone.trim(),
                 email = email.trim(),
                 notes = notes.trim()
             )
-            repository.addPersonalContact(contact)
+            repository.addPersonalContact(user.uid, contact)
         }
     }
 
     fun updatePersonalContact(contact: PersonalContactEntity) {
+        val user = _currentUser.value ?: return
         viewModelScope.launch {
-            repository.updatePersonalContact(contact)
+            repository.updatePersonalContact(user.uid, contact)
         }
     }
 
-    fun deletePersonalContact(id: Long) {
+    fun deletePersonalContact(id: Long, docId: String = "") {
+        val user = _currentUser.value ?: return
         viewModelScope.launch {
-            repository.deletePersonalContact(id)
+            repository.deletePersonalContact(user.uid, id, docId)
         }
     }
 
@@ -381,7 +402,7 @@ class MindlyViewModel(application: Application) : AndroidViewModel(application) 
     fun logMood(level: Int, note: String, onDone: () -> Unit) {
         val user = _currentUser.value ?: return
         viewModelScope.launch {
-            repository.logMood(user.id, level, note)
+            repository.logMood(user.uid, user.id, level, note)
             onDone()
         }
     }
@@ -403,19 +424,19 @@ class MindlyViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun deleteProfessionalContact(id: Long) {
+    fun deleteProfessionalContact(id: Long, docId: String = "") {
         val user = _currentUser.value
         if (user?.role != "admin") return
         viewModelScope.launch {
-            repository.deleteProfessionalContact(id)
+            repository.deleteProfessionalContact(id, docId)
         }
     }
 
-    fun togglePublishStatus(id: Long, currentStatus: Boolean) {
+    fun togglePublishStatus(id: Long, currentStatus: Boolean, docId: String = "") {
         val user = _currentUser.value
         if (user?.role != "admin") return
         viewModelScope.launch {
-            repository.setPublishedStatus(id, !currentStatus)
+            repository.setPublishedStatus(id, docId, !currentStatus)
         }
     }
 }
